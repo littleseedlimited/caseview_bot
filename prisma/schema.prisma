@@ -1,0 +1,75 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  telegramId      BigInt   @unique
+  firstName       String?
+  fullName        String?
+  email           String?
+  phone           String?
+  address         String?
+  jobPosition     String?
+  accountType     String   @default("INDIVIDUAL") // INDIVIDUAL, FIRM, BAR
+  firmName        String?  // For FIRM accounts
+  firmState       String?  // For FIRM accounts
+  branchName      String?  // For BAR accounts
+  registrationNumber String? // Company Reg No (Firm) or Bar ID (Individual)
+  approvalStatus  String   @default("APPROVED") // "PENDING", "APPROVED", "REJECTED"
+  isVerified      Boolean  @default(false)
+  isBanned        Boolean  @default(false)
+  username        String?
+  country         String?
+  preferredCurrency String @default("USD")
+  firmCode        String?  // User-defined prefix (e.g. "LGL")
+  subscription    String   @default("FREE") // "FREE", "PRO", "FIRM", "BAR"
+  subscriptionExp DateTime?
+  monthlyUsage    Int      @default(0)      // Cases used this month
+  usageResetDate  DateTime @default(now())  // When to reset monthly count
+  teamOwnerId     Int?                      // If staff, who owns them
+  teamOwner       User?    @relation("TeamMembers", fields: [teamOwnerId], references: [id])
+  teamMembers     User[]   @relation("TeamMembers")
+  cases           CaseMatter[]
+  createdAt       DateTime @default(now())
+}
+
+model Admin {
+  id         Int      @id @default(autoincrement())
+  telegramId BigInt   @unique
+  username   String?
+  role       String   @default("ADMIN") // ADMIN, SUPER_ADMIN
+  createdAt  DateTime @default(now())
+}
+
+model CaseMatter {
+  id          Int        @id @default(autoincrement())
+  refCode     String?    // Display ID (e.g. "LGL-001")
+  title       String
+  description String?
+  analysis    String?    // Full AI analysis text
+  qaHistory   String?    // JSON string of Q&A history
+  scenarios   String?    // JSON string of simulation scenarios
+  jurisdiction String?
+  status      String     @default("OPEN")
+  userId      Int
+  user        User       @relation(fields: [userId], references: [id])
+  documents   Document[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Document {
+  id          Int      @id @default(autoincrement())
+  caseId      Int
+  case        CaseMatter @relation(fields: [caseId], references: [id])
+  type        String   // "PDF", "IMAGE", "AUDIO", "VIDEO"
+  filePath    String?  // Local or S3 path
+  textContent String?  // Extracted text
+  createdAt   DateTime @default(now())
+}
