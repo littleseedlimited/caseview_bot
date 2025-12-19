@@ -9,7 +9,9 @@ import { COUNTRIES, getPlanPrices, getCountryByCode } from '../services/currency
 import { initializePayment, getPlanAmount } from '../services/paymentService';
 
 
+console.log('[DB] Initializing Prisma Client...');
 const prisma = new PrismaClient();
+console.log('[DB] Prisma Client created.');
 
 // Simple in-memory session (use Redis/Database in production)
 const sessions: Record<number, {
