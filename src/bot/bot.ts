@@ -9,6 +9,21 @@ import { COUNTRIES, getPlanPrices, getCountryByCode } from '../services/currency
 import { initializePayment, getPlanAmount } from '../services/paymentService';
 
 
+// 🛠️ DATABASE_URL AUTO-FIX (Must be before Prisma Client creation)
+if (process.env.DATABASE_URL) {
+    let dbUrl = process.env.DATABASE_URL.replace(/['"]/g, '').trim();
+    if (!dbUrl.startsWith('postgresql://') && !dbUrl.startsWith('postgres://')) {
+        console.warn('⚠️ DATABASE_URL missing protocol in bot.ts. Fixing...');
+        dbUrl = `postgresql://${dbUrl}`;
+    }
+    process.env.DATABASE_URL = dbUrl;
+}
+
+// 🛠️ TOKEN AUTO-FIX
+if (process.env.TELEGRAM_TOKEN) {
+    process.env.TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN.replace(/['"]/g, '').trim();
+}
+
 console.log('[DB] Initializing Prisma Client...');
 const prisma = new PrismaClient();
 console.log('[DB] Prisma Client created.');
