@@ -53,13 +53,36 @@ async function main() {
         process.exit(1);
     }
 
-    const bot = setupBot(token);
+    console.log('--- System Check ---');
+    console.log('Node Version:', process.version);
+    console.log('Environment:', process.env.NODE_ENV || 'development');
+    console.log('Token Length:', token.length);
+    console.log('--------------------');
 
-    console.log('CaseView Bot is starting...');
+    console.log('[1/3] Initializing Bot & Database...');
+    const bot = setupBot(token);
+    console.log('[2/3] Bot setup complete.');
+
+    console.log('[3/3] Verifying Telegram connection...');
+    try {
+        const me = await bot.telegram.getMe();
+        console.log(`✅ Connected as @${me.username} (${me.id})`);
+    } catch (err: any) {
+        console.error('❌ Telegram connection failed:', err.message);
+        process.exit(1);
+    }
+
+    console.log('CaseView Bot is launching...');
 
     // Enable graceful stop
-    process.once('SIGINT', () => bot.stop('SIGINT'));
-    process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    process.once('SIGINT', () => {
+        console.log('SIGINT received, stopping bot...');
+        bot.stop('SIGINT');
+    });
+    process.once('SIGTERM', () => {
+        console.log('SIGTERM received, stopping bot...');
+        bot.stop('SIGTERM');
+    });
 
     await launchWithRetry(bot);
 }
