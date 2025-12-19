@@ -1,4 +1,10 @@
 import 'dotenv/config';
+
+// 🛠️ DATABASE_URL AUTO-FIX (Must be before setupBot import)
+if (process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/['"]/g, '').trim();
+}
+
 import { setupBot } from './bot/bot';
 import http from 'http';
 
@@ -47,14 +53,22 @@ async function launchWithRetry(bot: any, attempt: number = 1): Promise<void> {
 }
 
 async function main() {
-    let dbUrl = process.env.DATABASE_URL;
-    if (dbUrl && !dbUrl.startsWith('postgresql://') && !dbUrl.startsWith('postgres://')) {
-        console.warn('⚠️ DATABASE_URL missing protocol. Attempting to fix...');
-        process.env.DATABASE_URL = `postgresql://${dbUrl}`;
+    // Re-sanitize to be absolutely sure
+    if (process.env.DATABASE_URL) {
+        process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/['"]/g, '').trim();
+        if (!process.env.DATABASE_URL.startsWith('postgresql://') && !process.env.DATABASE_URL.startsWith('postgres://')) {
+            console.warn('⚠️ DATABASE_URL missing protocol. Attempting to fix...');
+            process.env.DATABASE_URL = `postgresql://${process.env.DATABASE_URL}`;
+        }
     }
 
-    const token = process.env.TELEGRAM_TOKEN;
-    if (!token || token === '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11') {
+    let token = process.env.TELEGRAM_TOKEN;
+    if (token) {
+        token = token.replace(/['"]/g, '').trim();
+        process.env.TELEGRAM_TOKEN = token;
+    }
+
+    if (!token || token.includes('ABC-DEF')) {
         console.error('ERROR: Please set a valid TELEGRAM_TOKEN in .env file.');
         process.exit(1);
     }
