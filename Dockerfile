@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20 AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,8 @@ RUN npx prisma generate
 RUN npm run build || echo "No build script, will use ts-node"
 
 # Production stage
-FROM node:18-alpine
+FROM node:20-slim
+RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -33,13 +34,10 @@ COPY --from=builder /app/tsconfig.json ./
 
 # Set environment
 ENV NODE_ENV=production
+ENV PORT=10000
 
-# Expose port (for webhook mode if needed)
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "console.log('healthy')" || exit 1
+# Expose port (for Web Service health checks)
+EXPOSE 10000
 
 # Start the bot
 CMD ["npm", "start"]
