@@ -47,6 +47,12 @@ async function launchWithRetry(bot: any, attempt: number = 1): Promise<void> {
 }
 
 async function main() {
+    let dbUrl = process.env.DATABASE_URL;
+    if (dbUrl && !dbUrl.startsWith('postgresql://') && !dbUrl.startsWith('postgres://')) {
+        console.warn('⚠️ DATABASE_URL missing protocol. Attempting to fix...');
+        process.env.DATABASE_URL = `postgresql://${dbUrl}`;
+    }
+
     const token = process.env.TELEGRAM_TOKEN;
     if (!token || token === '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11') {
         console.error('ERROR: Please set a valid TELEGRAM_TOKEN in .env file.');
