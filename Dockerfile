@@ -17,7 +17,7 @@ COPY . .
 RUN npx prisma generate
 
 # Build TypeScript
-RUN npm run build || echo "No build script, will use ts-node"
+RUN npm run build
 
 # Production stage
 FROM node:20-slim
@@ -25,12 +25,12 @@ RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy from builder
+# Copy production files
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/tsconfig.json ./
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/eng.traineddata ./
 
 # Set environment
 ENV NODE_ENV=production
@@ -39,5 +39,5 @@ ENV PORT=10000
 # Expose port (for Web Service health checks)
 EXPOSE 10000
 
-# Start the bot
-CMD ["npm", "start"]
+# Start the bot using compiled JS (Faster & more stable)
+CMD ["node", "dist/index.js"]
