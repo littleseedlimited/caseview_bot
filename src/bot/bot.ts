@@ -70,22 +70,33 @@ export function setupBot(token: string) {
     // Ban check middleware
     // Ban check middleware
 
+    // Error Handler
+    bot.catch((err: any, ctx) => {
+        console.error(`❌ Bot Error for update ${ctx.updateType}:`, err);
+    });
+
     // Ban & Approval check middleware
     bot.use(async (ctx, next) => {
-        if (ctx.from) {
-            const user = await prisma.user.findUnique({ where: { telegramId: BigInt(ctx.from.id) } });
-            if (user?.isBanned) {
-                return ctx.reply('⛔ Your account has been suspended. Contact support.');
-            }
-            // Check Approval Status (Skip for /start to allow login/signup)
-            if (user && user.approvalStatus === 'PENDING') {
-                const isStart = ctx.message && 'text' in ctx.message && ctx.message.text === '/start';
-                if (!isStart) {
-                    return ctx.reply('⏳ **Account Pending Approval**\n\nYour Firm/Bar registration is under review by an Administrator. You will be notified when approved.');
+        try {
+            if (ctx.from) {
+                const user = await prisma.user.findUnique({ where: { telegramId: BigInt(ctx.from.id) } });
+                if (user?.isBanned) {
+                    return ctx.reply('⛔ Your account has been suspended. Contact support.');
+                }
+                // Check Approval Status
+                if (user && user.approvalStatus === 'PENDING') {
+                    const isStart = ctx.message && 'text' in ctx.message && ctx.message.text === '/start';
+                    if (!isStart) {
+                        return ctx.reply('⏳ **Account Pending Approval**\n\nYour Firm/Bar registration is under review by an Administrator. You will be notified when approved.');
+                    }
                 }
             }
+            await next();
+        } catch (err: any) {
+            console.error('❌ Middleware Error:', err.message || err);
+            // Optionally reply to user so they aren't left hanging
+            try { await ctx.reply('⚠️ An internal error occurred. Please try again later.'); } catch { }
         }
-        await next();
     });
 
     // ... (start and history commands remain)
