@@ -1,12 +1,10 @@
 import 'dotenv/config';
+import http from 'http';
 
-// 🛠️ DATABASE_URL AUTO-FIX (Must be before setupBot import)
-if (process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/['"]/g, '').trim();
-}
+// Note: DATABASE_URL and TOKEN sanitization now happens inside src/bot/bot.ts 
+// to ensure it runs before Prisma initializes.
 
 import { setupBot } from './bot/bot';
-import http from 'http';
 
 // Tiny Health Check Server for Render Free Tier
 const PORT = process.env.PORT || 10000;
