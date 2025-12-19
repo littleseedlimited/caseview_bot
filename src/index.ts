@@ -1,5 +1,15 @@
 import 'dotenv/config';
 import { setupBot } from './bot/bot';
+import http from 'http';
+
+// Tiny Health Check Server for Render Free Tier
+const PORT = process.env.PORT || 10000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is alive\n');
+}).listen(PORT, () => {
+    console.log(`📡 Health check server listening on port ${PORT}`);
+});
 
 const MAX_RETRIES = 10;
 const INITIAL_DELAY = 5000; // 5 seconds
