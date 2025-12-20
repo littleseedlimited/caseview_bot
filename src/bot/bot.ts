@@ -814,18 +814,35 @@ Select a plan:`;
         const c = await prisma.caseMatter.findUnique({ where: { id: caseId } });
         if (!c) return ctx.answerCbQuery('Case not found.');
 
+        // Store case in session for Q&A
+        const userId = ctx.from.id;
+        sessions[userId] = sessions[userId] || { step: 'IDLE', data: {} };
+        sessions[userId].data.currentCaseId = caseId;
+        sessions[userId].data.currentRefCode = c.refCode || String(caseId);
+
         await ctx.answerCbQuery();
         let msg = `📂 **Case View: ${escapeMd(c.refCode || String(c.id))}**\n\n`;
         msg += `**Title:** ${escapeMd(c.title)}\n`;
         msg += `**Status:** ${escapeMd(c.status)}\n`;
-        msg += `**Description:** ${escapeMd(c.description?.substring(0, 500) || 'No description')}\n\n`; // Increased limit
+        msg += `**Description:** ${escapeMd(c.description?.substring(0, 500) || 'No description')}...\n\n`;
+        msg += `_Select an action below:_`;
 
         await ctx.replyWithMarkdown(msg, {
             reply_markup: {
-                inline_keyboard: [[
-                    { text: '🔙 Back to History', callback_data: 'refresh_history' },
-                    { text: '🎲 Run Scenario', callback_data: `run_scenario_${c.id}` }
-                ]]
+                inline_keyboard: [
+                    [
+                        { text: '❓ Ask Question', callback_data: `qa_case_${c.id}` },
+                        { text: '🎲 Run Scenario', callback_data: `scenario_case_${c.id}` }
+                    ],
+                    [
+                        { text: '🔍 Find Precedents', callback_data: `research_case_${c.id}` },
+                        { text: '📤 Export', callback_data: `export_case_${c.id}` }
+                    ],
+                    [
+                        { text: '🔙 Back to History', callback_data: 'refresh_history' },
+                        { text: '🗑 Delete', callback_data: `delete_case_${c.id}` }
+                    ]
+                ]
             }
         });
     });
@@ -881,6 +898,44 @@ Select a plan:`;
         });
     });
 
+
+    // Ask Question from History Case
+    bot.action(/^qa_case_(\d+)/, async (ctx) => {
+        const caseId = parseInt(ctx.match[1]);
+        const c = await prisma.caseMatter.findUnique({ where: { id: caseId } });
+        if (!c) return ctx.answerCbQuery('Case not found.');
+
+        const userId = ctx.from.id;
+        sessions[userId] = sessions[userId] || { step: 'IDLE', data: {} };
+        sessions[userId].data.currentCaseId = caseId;
+        sessions[userId].data.currentRefCode = c.refCode || String(caseId);
+        sessions[userId].step = 'WAITING_QUESTION';
+
+        await ctx.answerCbQuery();
+        await ctx.reply(`❓ **Ask a Question about Case: ${c.refCode || c.id}**\n\nType your legal question below and I will analyze it based on this case's facts.`);
+    });
+
+    // Find Precedents from History Case
+    bot.action(/^research_case_(\d+)/, async (ctx) => {
+        const caseId = parseInt(ctx.match[1]);
+        const c = await prisma.caseMatter.findUnique({ where: { id: caseId } });
+        if (!c) return ctx.answerCbQuery('Case not found.');
+
+        await ctx.answerCbQuery();
+        await ctx.reply(`🔍 **Searching for precedents related to:** ${c.title}\n\nPlease wait...`);
+
+        // Trigger search logic
+        const results = await searchPrecedents(c.title + ' ' + (c.description?.substring(0, 200) || ''));
+        if (results.length > 0) {
+            let msg = `📚 **Precedents for Case: ${c.refCode || c.id}**\n\n`;
+            results.slice(0, 5).forEach((r: any, i: number) => {
+                msg += `${i + 1}. **${r.name}** (${r.court || 'Court N/A'})\n   ${r.snippet?.substring(0, 100) || 'No summary available'}...\n\n`;
+            });
+            await ctx.reply(msg + `\n_Use /search for more specific queries._`);
+        } else {
+            await ctx.reply(`No precedents found for this case's topic. Try /search [keywords] for a manual search.`);
+        }
+    });
 
     bot.command('share', async (ctx) => {
         const parts = ctx.message.text.split(' ');
@@ -2125,17 +2180,18 @@ Provide:
                     data: { jobPosition: text }
                 });
                 session.step = 'SIGNUP_REG_NUMBER';
-                await ctx.reply('📝 Final Step: Please enter your **Registration Number**.\n\n• For Individuals: Bar Registration Number\n• For Firms: Company Registration Number');
+                await ctx.reply('📝 Final Step: Please enter your **Registration Number** (or type "Skip").\n\n• For Individuals: Bar Registration Number\n• For Firms: Company Registration Number\n\n_This is optional._');
                 return;
 
             case 'SIGNUP_REG_NUMBER':
                 const userReg = await prisma.user.findUnique({ where: { telegramId: BigInt(userId) } });
                 const isFirmOrBar = userReg?.accountType === 'FIRM' || userReg?.accountType === 'BAR';
+                const skipped = text.toLowerCase() === 'skip';
 
                 await prisma.user.update({
                     where: { telegramId: BigInt(userId) },
                     data: {
-                        registrationNumber: text,
+                        registrationNumber: skipped ? null : text,
                         approvalStatus: isFirmOrBar ? 'PENDING' : 'APPROVED' // Firms need approval
                     } as any
                 });
