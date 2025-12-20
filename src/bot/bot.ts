@@ -30,7 +30,7 @@ console.log('[DB] Prisma Client created.');
 
 // Simple in-memory session (use Redis/Database in production)
 const sessions: Record<number, {
-    step: 'IDLE' | 'WAITING_FIRM_CODE' | 'WAITING_JURISDICTION' | 'WAITING_COURT' | 'WAITING_PARTIES' | 'WAITING_FACTS' | 'WAITING_QUESTION' | 'WAITING_SHARE_USER' | 'SIGNUP_ACCOUNT_TYPE' | 'SIGNUP_FIRM_NAME' | 'SIGNUP_FIRM_STATE' | 'SIGNUP_BRANCH_NAME' | 'SIGNUP_NAME' | 'SIGNUP_EMAIL' | 'SIGNUP_PHONE' | 'SIGNUP_ADDRESS' | 'SIGNUP_JOB' | 'SIGNUP_REG_NUMBER' | 'WAITING_VERIFY' | 'EDIT_FULLNAME' | 'EDIT_EMAIL' | 'EDIT_PHONE' | 'EDIT_ADDRESS' | 'EDIT_JOBPOSITION' | 'EDIT_FIRMCODE' | 'WAITING_ADDSTAFF' | 'SCENARIO_Q1' | 'SCENARIO_Q2' | 'SCENARIO_Q3' | 'SCENARIO_Q4' | 'SCENARIO_Q5' | 'WAITING_LINK' | 'EXPORT_FORMAT' | 'EXPORT_WORDS';
+    step: 'IDLE' | 'WAITING_FIRM_CODE' | 'WAITING_JURISDICTION' | 'WAITING_COURT' | 'WAITING_PARTIES' | 'WAITING_FACTS' | 'WAITING_QUESTION' | 'WAITING_SHARE_USER' | 'SIGNUP_ACCOUNT_TYPE' | 'SIGNUP_FIRM_NAME' | 'SIGNUP_FIRM_STATE' | 'SIGNUP_BRANCH_NAME' | 'SIGNUP_NAME' | 'SIGNUP_EMAIL' | 'SIGNUP_PHONE' | 'SIGNUP_ADDRESS' | 'SIGNUP_JOB' | 'SIGNUP_REG_NUMBER' | 'WAITING_VERIFY' | 'EDIT_FULLNAME' | 'EDIT_EMAIL' | 'EDIT_PHONE' | 'EDIT_ADDRESS' | 'EDIT_JOBPOSITION' | 'EDIT_FIRMCODE' | 'WAITING_ADDSTAFF' | 'SCENARIO_Q1' | 'SCENARIO_Q2' | 'SCENARIO_Q3' | 'SCENARIO_Q4' | 'SCENARIO_Q5' | 'WAITING_LINK' | 'EXPORT_FORMAT' | 'EXPORT_WORDS' | 'OCR_PREVIEW' | 'OCR_EDIT';
     data: {
         jurisdiction?: string;
         court?: string;
@@ -54,6 +54,7 @@ const sessions: Record<number, {
             wordCount?: string;
         };
         precedents?: any[];
+        ocrText?: string; // For OCR preview/edit workflow
     },
     staging?: {
         type: 'text' | 'file';
@@ -158,6 +159,49 @@ export function setupBot(token: string) {
             sessions[userId] = { step: 'SIGNUP_BRANCH_NAME', data: {} };
             await ctx.reply('⚖️ **Bar Association Account**\n\nStep 1/6: What is the **Branch/Chapter Name**?');
         }
+    });
+
+    // HELP COMMAND - User Guide Summary
+    bot.command('help', async (ctx) => {
+        const helpText = `📖 **CaseView Bot - Quick Guide**
+
+**🚀 Getting Started**
+/start - Welcome menu
+/signup - Create your profile
+/profile - View your info
+
+**📁 Case Management**
+/newbrief - Start a new legal case
+/history - View your saved cases
+/capture - Quick photo/audio upload
+• Send any image → automatic text extraction (OCR)
+
+**🔍 Research & Analysis**
+• Upload documents to get AI analysis
+• Use "Ask Question" to query case facts
+• Use "Run Scenario" to simulate outcomes
+• Use "Find Precedents" for legal research
+
+**💎 Subscription**
+/subscribe - View plans & upgrade
+/myplan - Check your usage limits
+
+**👥 Team (Firms/Bars)**
+/team - Manage your team
+/addstaff - Invite staff members
+
+**📤 Export**
+• Select "Export" on any case
+• Choose PDF or Word format
+
+**💡 Tips**
+• Type "Skip" during signup to skip optional fields
+• Open cases from /history to ask questions
+• Use /search [keywords] for custom research
+
+_Need more help? Contact support._`;
+
+        await ctx.reply(helpText, { parse_mode: 'Markdown' });
     });
 
     // SUBSCRIBE COMMAND - Subscription management with detailed plans
@@ -717,6 +761,8 @@ Select a plan:`;
         await ctx.answerCbQuery();
         await ctx.reply('📎 **Upload Document**\n\nTap the 📎 attachment button and select a file.\nSupported: PDF, Word (DOC/DOCX), Images');
     });
+
+    // OCR is now AUTOMATIC for all image uploads - no command needed
 
     bot.command('newbrief', (ctx) => {
         const userId = ctx.from.id;
@@ -2137,6 +2183,23 @@ Provide:
                 await ctx.reply(`✅ **@${staffUsername}** added to your team!\n\nThey now have access to shared team features.\n\nUse /team to view all members.`);
                 return;
 
+            // OCR EDIT - User sending corrected text
+            case 'OCR_EDIT':
+                session.data.ocrText = text;
+                session.step = 'IDLE';
+                await ctx.reply('✅ **Text Updated!**\n\nYour corrected text is ready.', {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '✅ Use for New Case', callback_data: 'ocr_use_new' },
+                                { text: '📋 Copy Text', callback_data: 'ocr_copy' }
+                            ],
+                            [{ text: '❌ Discard', callback_data: 'ocr_discard' }]
+                        ]
+                    }
+                });
+                return;
+
             // SIGNUP WIZARD STEPS
             case 'SIGNUP_NAME':
                 await prisma.user.update({
@@ -2274,6 +2337,42 @@ Provide:
             if (!sessions[userId]) sessions[userId] = { step: 'IDLE', data: {} };
             const currentSession = sessions[userId];
 
+            // AUTO OCR - Extract text from any image upload automatically
+            if (mime.startsWith('image')) {
+                await ctx.reply('🔄 **Extracting text from image...**\n\nThis may take a moment.');
+
+                const extractedText = await extractTextFromDocument(fileLink.href, mime);
+
+                if (extractedText.startsWith('Error')) {
+                    await ctx.reply(`❌ ${extractedText}`);
+                    currentSession.step = 'IDLE';
+                    return;
+                }
+
+                // Store extracted text for editing
+                currentSession.data.ocrText = extractedText;
+                currentSession.step = 'IDLE';
+
+                // Show preview with options
+                const preview = extractedText.substring(0, 1500);
+                await ctx.reply(`📝 **Extracted Text Preview:**\n\n\`\`\`\n${preview}${extractedText.length > 1500 ? '\n...(truncated)' : ''}\n\`\`\`\n\n**Total Characters:** ${extractedText.length}`, {
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '✅ Use for New Case', callback_data: 'ocr_use_new' },
+                                { text: '📋 Copy Text', callback_data: 'ocr_copy' }
+                            ],
+                            [
+                                { text: '✏️ Edit Text', callback_data: 'ocr_edit' },
+                                { text: '❌ Discard', callback_data: 'ocr_discard' }
+                            ]
+                        ]
+                    }
+                });
+                return;
+            }
+
             // STAGE THE FILE
             currentSession.staging = { type: 'file', content: fileLink.href, mime };
 
@@ -2316,6 +2415,51 @@ Provide:
                 ]]
             }
         });
+    });
+
+    // OCR ACTION HANDLERS
+    bot.action('ocr_use_new', async (ctx) => {
+        const userId = ctx.from.id;
+        const session = sessions[userId];
+        const ocrText = session?.data.ocrText;
+
+        if (!ocrText) return ctx.answerCbQuery('OCR text expired. Please run /ocr again.');
+
+        await ctx.answerCbQuery('Creating case from OCR text...');
+        session.data.ocrText = undefined;
+
+        // Process as new case
+        await processCaseInput(ctx, { type: 'text', content: ocrText, mime: 'text/plain' }, {});
+    });
+
+    bot.action('ocr_copy', async (ctx) => {
+        const userId = ctx.from.id;
+        const session = sessions[userId];
+        const ocrText = session?.data.ocrText;
+
+        if (!ocrText) return ctx.answerCbQuery('OCR text expired.');
+
+        await ctx.answerCbQuery();
+        // Send as plain text for easy copying
+        await ctx.reply(`📋 **Full Extracted Text:**\n\n${ocrText.substring(0, 4000)}`);
+    });
+
+    bot.action('ocr_edit', async (ctx) => {
+        const userId = ctx.from.id;
+        const session = sessions[userId];
+
+        if (!session?.data.ocrText) return ctx.answerCbQuery('OCR text expired.');
+
+        session.step = 'OCR_EDIT';
+        await ctx.answerCbQuery();
+        await ctx.reply('✏️ **Edit Mode**\n\nSend me the corrected text. You can copy the text above, edit it, and paste it back.\n\n_Type your corrected version and send it._');
+    });
+
+    bot.action('ocr_discard', async (ctx) => {
+        const userId = ctx.from.id;
+        if (sessions[userId]) sessions[userId].data.ocrText = undefined;
+        await ctx.answerCbQuery('Discarded.');
+        await ctx.editMessageText('❌ OCR text discarded.');
     });
 
     bot.action('stage_existing', async (ctx) => {
