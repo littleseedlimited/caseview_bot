@@ -30,8 +30,11 @@ process.on('unhandledRejection', (reason, promise) => {
 async function launchWithRetry(bot: any, attempt: number = 1): Promise<void> {
     try {
         console.log(`[Attempt ${attempt}/${MAX_RETRIES}] Connecting to Telegram...`);
-        await bot.launch();
-        console.log('✅ Bot is running!');
+        bot.launch(); // Non-blocking if you don't await, or await but log before
+        console.log('✅ Bot is now polling for updates!');
+
+        // Keep the process alive or handle the promise
+        // bot.launch() handles its own loop
     } catch (error: any) {
         const isNetworkError = error.code === 'ETIMEDOUT' ||
             error.code === 'ECONNRESET' ||
