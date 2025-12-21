@@ -63,6 +63,18 @@ async function main() {
         }
     }
 
+    // 🛠️ FORCE DB MIGRATION (Fix for schema mismatch)
+    console.log('[Init] Checking Database Schema...');
+    try {
+        const { execSync } = require('child_process');
+        console.log('🔄 Running "prisma db push" to sync schema...');
+        execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
+        console.log('✅ Database schema synced successfully.');
+    } catch (err: any) {
+        console.error('❌ DB Sync Failed:', err.message);
+        // Continue anyway, maybe it works
+    }
+
     let token = process.env.TELEGRAM_TOKEN;
     if (token) {
         token = token.replace(/['"]/g, '').trim();
