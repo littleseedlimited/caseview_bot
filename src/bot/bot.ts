@@ -111,7 +111,7 @@ export function setupBot(token: string) {
         } catch (err: any) {
             console.error('❌ Middleware Error:', err.message || err);
             // Optionally reply to user so they aren't left hanging
-            try { await ctx.reply('⚠️ An internal error occurred. Please try again later.'); } catch { }
+            try { await ctx.reply(`⚠️ Internal Error: ${err.message || err}`); } catch { }
         }
     });
 
