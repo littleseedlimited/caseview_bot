@@ -3,7 +3,7 @@ services:
     name: caseview-bot
     env: node
     buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: npm start
+    startCommand: npx prisma db push && npm start
     envVars:
       - key: NODE_ENV
         value: production
