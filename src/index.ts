@@ -1,126 +1,153 @@
 import 'dotenv/config';
-import http from 'http';
-
-// Note: DATABASE_URL and TOKEN sanitization now happens inside src/bot/bot.ts 
-// to ensure it runs before Prisma initializes.
-
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import { PrismaClient } from '@prisma/client';
 import { setupBot } from './bot/bot';
+import path from 'path';
 
-// Tiny Health Check Server for Render Free Tier
+// Initialize App and DB
+const app = express();
+const prisma = new PrismaClient();
 const PORT = process.env.PORT || 10000;
-http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is alive\n');
-}).listen(PORT, () => {
-    console.log(`📡 Health check server listening on port ${PORT}`);
-});
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'changeme_to_something_secure'; // Simple auth token
 
-const MAX_RETRIES = 10;
-const INITIAL_DELAY = 5000; // 5 seconds
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+app.use(express.static(path.join(__dirname, '../public'))); // Serve admin.html
 
-// Global Error Handlers to prevent crash
-process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-async function launchWithRetry(bot: any, attempt: number = 1): Promise<void> {
-    try {
-        console.log(`[Attempt ${attempt}/${MAX_RETRIES}] Connecting to Telegram...`);
-        bot.launch(); // Non-blocking if you don't await, or await but log before
-        console.log('✅ Bot is now polling for updates!');
-
-        // Keep the process alive or handle the promise
-        // bot.launch() handles its own loop
-    } catch (error: any) {
-        const isNetworkError = error.code === 'ETIMEDOUT' ||
-            error.code === 'ECONNRESET' ||
-            error.code === 'ENOTFOUND' ||
-            error.message?.includes('timeout');
-
-        if (isNetworkError && attempt < MAX_RETRIES) {
-            const delay = INITIAL_DELAY * Math.pow(1.5, attempt - 1); // Exponential backoff
-            console.log(`⚠️ Network error: ${error.code || error.message}`);
-            console.log(`⏳ Retrying in ${Math.round(delay / 1000)} seconds...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return launchWithRetry(bot, attempt + 1);
-        } else {
-            throw error;
-        }
+// 🛠️ DATABASE_URL FIX (Same as before)
+if (process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/['"]/g, '').trim();
+    if (!process.env.DATABASE_URL.startsWith('postgresql://') && !process.env.DATABASE_URL.startsWith('postgres://')) {
+        process.env.DATABASE_URL = `postgresql://${process.env.DATABASE_URL}`;
     }
 }
 
-async function main() {
-    // Re-sanitize to be absolutely sure
-    if (process.env.DATABASE_URL) {
-        process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/['"]/g, '').trim();
-        if (!process.env.DATABASE_URL.startsWith('postgresql://') && !process.env.DATABASE_URL.startsWith('postgres://')) {
-            console.warn('⚠️ DATABASE_URL missing protocol. Attempting to fix...');
-            process.env.DATABASE_URL = `postgresql://${process.env.DATABASE_URL}`;
+// ================= API ROUTES (Protected) =================
+
+// Middleware to check token
+const checkAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const token = req.query.token as string || req.headers['x-admin-token'] as string;
+    if (token === ADMIN_SECRET) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Unauthorized' });
+    }
+};
+
+// GET ALL USERS
+app.get('/api/admin/users', checkAuth, async (req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
+        // Convert BigInt to String for JSON serialization
+        const safeUsers = JSON.parse(JSON.stringify(users, (key, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+        ));
+        res.json(safeUsers);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+// GET SINGLE USER
+app.get('/api/admin/users/:id', checkAuth, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({
+            where: { telegramId: BigInt(req.params.id) }
+        });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        const safeUser = JSON.parse(JSON.stringify(user, (key, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+        ));
+        res.json(safeUser);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to fetch user' });
+    }
+});
+
+// UPDATE USER (User Edit Modal)
+app.put('/api/admin/users/:id', checkAuth, async (req, res) => {
+    try {
+        const { subscription, subscriptionExp, isVerified, isBanned } = req.body;
+
+        await prisma.user.update({
+            where: { telegramId: BigInt(req.params.id) },
+            data: {
+                subscription,
+                subscriptionExp: subscriptionExp ? new Date(subscriptionExp) : null,
+                isVerified,
+                isBanned
+            }
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to update user' });
+    }
+});
+
+// DELETE USER
+app.delete('/api/admin/users/:id', checkAuth, async (req, res) => {
+    try {
+        const user = await prisma.user.findUnique({ where: { telegramId: BigInt(req.params.id) } });
+        if (user) {
+            // Delete related data first
+            await prisma.caseMatter.deleteMany({ where: { userId: user.id } });
+            await prisma.user.delete({ where: { id: user.id } });
         }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to delete user' });
     }
+});
 
-    // 🛠️ FORCE DB MIGRATION (Fix for schema mismatch)
-    console.log('[Init] Checking Database Schema...');
-    try {
-        const { execSync } = require('child_process');
-        console.log('🔄 Running "prisma db push" to sync schema...');
-        execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
-        console.log('✅ Database schema synced successfully.');
-    } catch (err: any) {
-        console.error('❌ DB Sync Failed:', err.message);
-        // Continue anyway, maybe it works
-    }
+// Health Check
+app.get('/health', (req, res) => res.send('Bot & Dashboard Alive'));
 
-    let token = process.env.TELEGRAM_TOKEN;
-    if (token) {
-        token = token.replace(/['"]/g, '').trim();
-        process.env.TELEGRAM_TOKEN = token;
-    }
+// ================= BOT LAUNCHER =================
 
-    if (!token || token.includes('ABC-DEF')) {
-        console.error('ERROR: Please set a valid TELEGRAM_TOKEN in .env file.');
-        process.exit(1);
-    }
+let token = process.env.TELEGRAM_TOKEN;
+if (token) token = token.replace(/['"]/g, '').trim();
 
-    console.log('--- System Check ---');
-    console.log('Node Version:', process.version);
-    console.log('Environment:', process.env.NODE_ENV || 'development');
-    console.log('Token Length:', token.length);
-    console.log('--------------------');
-
-    console.log('[1/3] Initializing Bot & Database...');
-    const bot = setupBot(token);
-    console.log('[2/3] Bot setup complete.');
-
-    console.log('[3/3] Verifying Telegram connection...');
-    try {
-        const me = await bot.telegram.getMe();
-        console.log(`✅ Connected as @${me.username} (${me.id})`);
-    } catch (err: any) {
-        console.error('❌ Telegram connection failed:', err.message);
-        process.exit(1);
-    }
-
-    console.log('CaseView Bot is launching...');
-
-    // Enable graceful stop
-    process.once('SIGINT', () => {
-        console.log('SIGINT received, stopping bot...');
-        bot.stop('SIGINT');
-    });
-    process.once('SIGTERM', () => {
-        console.log('SIGTERM received, stopping bot...');
-        bot.stop('SIGTERM');
-    });
-
-    await launchWithRetry(bot);
-}
-
-main().catch((err) => {
-    console.error('❌ Bot failed to start after all retries:', err.message || err);
+if (!token || token.includes('ABC-DEF')) {
+    console.error('ERROR: Please set a valid TELEGRAM_TOKEN in .env file.');
     process.exit(1);
+}
+
+const bot = setupBot(token);
+
+// Graceful Stop
+const stop = (signal: string) => {
+    console.log(`${signal} received. Stopping...`);
+    bot.stop(signal);
+    process.exit(0);
+};
+process.once('SIGINT', () => stop('SIGINT'));
+process.once('SIGTERM', () => stop('SIGTERM'));
+
+// Start Server and Bot
+app.listen(PORT, () => {
+    console.log(`🚀 Server & Dashboard running on port ${PORT}`);
+    console.log(`🤖 Bot starting...`);
+
+    // Launch Bot with Retry Logic (Inline)
+    const launch = async (attempt = 1) => {
+        try {
+            await bot.launch();
+            console.log('✅ Bot is polling!');
+        } catch (err: any) {
+            if (attempt < 10) {
+                console.log(`⚠️ Bot launch retry ${attempt}... (${err.message})`);
+                setTimeout(() => launch(attempt + 1), 5000);
+            } else {
+                console.error('❌ Bot failed to launch');
+            }
+        }
+    };
+    launch();
 });
+
