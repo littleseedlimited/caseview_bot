@@ -541,6 +541,14 @@ Select a plan:`;
         msg += '\nusage: /userinfo <id> to see full details\nusage: /ban @username to ban/unban';
 
         await ctx.reply(msg);
+    });
+
+    // ADMIN: Full User Info
+    bot.command('userinfo', async (ctx) => {
+        const adminCheck = await isAdmin(ctx.from.id);
+        if (!adminCheck.isAdmin) return ctx.reply('⛔ Access denied.');
+
+        const args = ctx.message.text.split(' ');
         if (args.length < 2) return ctx.reply('Usage: /userinfo <telegram_id_or_username>');
 
         const target = args[1];
