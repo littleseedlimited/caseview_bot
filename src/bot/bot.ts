@@ -2319,16 +2319,19 @@ Provide:
                     data: { fullName: text }
                 });
                 session.step = 'SIGNUP_EMAIL';
-                await ctx.reply('✅ Step 2/5: What is your **Email Address**?');
+                await ctx.reply('📧 Please enter your **Email Address**:');
                 return;
 
             case 'SIGNUP_EMAIL':
+                if (!text.includes('@')) return ctx.reply('❌ Invalid email. Please try again.');
+
                 await prisma.user.update({
                     where: { telegramId: BigInt(userId) },
                     data: { email: text }
                 });
+
                 session.step = 'SIGNUP_PHONE';
-                await ctx.reply('✅ Step 3/5: What is your **Phone Number**?');
+                await ctx.reply('📱 Please enter your **Phone Number** (with Country Code, e.g., +234...):');
                 return;
 
             case 'SIGNUP_PHONE':
@@ -2336,26 +2339,29 @@ Provide:
                     where: { telegramId: BigInt(userId) },
                     data: { phone: text }
                 });
-                session.step = 'SIGNUP_ADDRESS';
-                await ctx.reply('✅ Step 4/5: What is your **Address**?');
+
+                session.step = 'SIGNUP_COUNTRY';
+                await ctx.reply('🌍 Please enter your **Country**:');
                 return;
 
-            case 'SIGNUP_ADDRESS':
+            case 'SIGNUP_COUNTRY':
                 await prisma.user.update({
                     where: { telegramId: BigInt(userId) },
-                    data: { address: text }
+                    data: { address: text } // Using address field for Country for now
                 });
-                session.step = 'SIGNUP_JOB';
-                await ctx.reply('✅ Step 5/5: What is your **Job Position/Title**?');
-                return;
 
-            case 'SIGNUP_JOB':
-                await prisma.user.update({
-                    where: { telegramId: BigInt(userId) },
-                    data: { jobPosition: text }
+                // Show completion message with Telegram ID confirmation
+                await ctx.reply(`✅ **Profile Setup Complete!**\n\n**Name:** ${session.data.fullName || 'Saved'}\n**Telegram ID:** ${userId} (Captured)\n**Phone:** ${session.data.phone || 'Saved'}\n**Country:** ${text}\n\nSelect your account type to proceed:`, {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: '👤 Individual', callback_data: 'acct_INDIVIDUAL' }],
+                            [{ text: '🏢 Law Firm', callback_data: 'acct_FIRM' }],
+                            [{ text: '⚖️ Bar Association', callback_data: 'acct_BAR' }],
+                            [{ text: '🤝 Join a Team', callback_data: 'acct_JOIN' }]
+                        ]
+                    }
                 });
-                session.step = 'SIGNUP_REG_NUMBER';
-                await ctx.reply('📝 Final Step: Please enter your **Registration Number**.\n\n• For Individuals: Bar Registration Number\n• For Firms: Company Registration Number\n\n_This field is REQUIRED._');
+                session.step = 'SIGNUP_ACCOUNT_TYPE';
                 return;
 
             case 'SIGNUP_REG_NUMBER':
