@@ -30,7 +30,7 @@ console.log('[DB] Prisma Client created.');
 
 // Simple in-memory session (use Redis/Database in production)
 const sessions: Record<number, {
-    step: 'IDLE' | 'WAITING_FIRM_CODE' | 'WAITING_JURISDICTION' | 'WAITING_COURT' | 'WAITING_PARTIES' | 'WAITING_FACTS' | 'WAITING_QUESTION' | 'WAITING_SHARE_USER' | 'SIGNUP_ACCOUNT_TYPE' | 'SIGNUP_FIRM_NAME' | 'SIGNUP_FIRM_STATE' | 'SIGNUP_BRANCH_NAME' | 'SIGNUP_NAME' | 'SIGNUP_EMAIL' | 'SIGNUP_PHONE' | 'SIGNUP_ADDRESS' | 'SIGNUP_JOB' | 'SIGNUP_REG_NUMBER' | 'WAITING_VERIFY' | 'EDIT_FULLNAME' | 'EDIT_EMAIL' | 'EDIT_PHONE' | 'EDIT_ADDRESS' | 'EDIT_JOBPOSITION' | 'EDIT_FIRMCODE' | 'WAITING_ADDSTAFF' | 'SCENARIO_Q1' | 'SCENARIO_Q2' | 'SCENARIO_Q3' | 'SCENARIO_Q4' | 'SCENARIO_Q5' | 'WAITING_LINK' | 'EXPORT_FORMAT' | 'EXPORT_WORDS' | 'OCR_PREVIEW' | 'OCR_EDIT';
+    step: 'IDLE' | 'WAITING_FIRM_CODE' | 'WAITING_JURISDICTION' | 'WAITING_COURT' | 'WAITING_PARTIES' | 'WAITING_FACTS' | 'WAITING_QUESTION' | 'WAITING_SHARE_USER' | 'SIGNUP_ACCOUNT_TYPE' | 'SIGNUP_FIRM_NAME' | 'SIGNUP_FIRM_STATE' | 'SIGNUP_BRANCH_NAME' | 'SIGNUP_NAME' | 'SIGNUP_EMAIL' | 'SIGNUP_PHONE' | 'SIGNUP_COUNTRY' | 'SIGNUP_ADDRESS' | 'SIGNUP_JOB' | 'SIGNUP_REG_NUMBER' | 'WAITING_VERIFY' | 'EDIT_FULLNAME' | 'EDIT_EMAIL' | 'EDIT_PHONE' | 'EDIT_ADDRESS' | 'EDIT_JOBPOSITION' | 'EDIT_FIRMCODE' | 'WAITING_ADDSTAFF' | 'SCENARIO_Q1' | 'SCENARIO_Q2' | 'SCENARIO_Q3' | 'SCENARIO_Q4' | 'SCENARIO_Q5' | 'WAITING_LINK' | 'EXPORT_FORMAT' | 'EXPORT_WORDS' | 'OCR_PREVIEW' | 'OCR_EDIT';
     data: {
         jurisdiction?: string;
         court?: string;
@@ -39,6 +39,10 @@ const sessions: Record<number, {
         currentCaseId?: number;
         currentRefCode?: string;
         verificationCode?: string;
+        // User Profile Data
+        fullName?: string;
+        phone?: string;
+        email?: string; // Added for completeness
         // For export - store full conversation
         analysis?: string;
         conversationHistory?: Array<{ role: 'user' | 'bot', content: string, timestamp: Date }>;
