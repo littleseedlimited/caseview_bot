@@ -30,7 +30,7 @@ console.log('[DB] Prisma Client created.');
 
 // Simple in-memory session (use Redis/Database in production)
 const sessions: Record<number, {
-    step: 'IDLE' | 'WAITING_FIRM_CODE' | 'WAITING_JURISDICTION' | 'WAITING_COURT' | 'WAITING_PARTIES' | 'WAITING_FACTS' | 'WAITING_QUESTION' | 'WAITING_SHARE_USER' | 'SIGNUP_ACCOUNT_TYPE' | 'SIGNUP_FIRM_NAME' | 'SIGNUP_FIRM_STATE' | 'SIGNUP_BRANCH_NAME' | 'SIGNUP_NAME' | 'SIGNUP_EMAIL' | 'SIGNUP_PHONE' | 'SIGNUP_COUNTRY' | 'SIGNUP_ADDRESS' | 'SIGNUP_JOB' | 'SIGNUP_REG_NUMBER' | 'WAITING_VERIFY' | 'EDIT_FULLNAME' | 'EDIT_EMAIL' | 'EDIT_PHONE' | 'EDIT_ADDRESS' | 'EDIT_JOBPOSITION' | 'EDIT_FIRMCODE' | 'WAITING_ADDSTAFF' | 'SCENARIO_Q1' | 'SCENARIO_Q2' | 'SCENARIO_Q3' | 'SCENARIO_Q4' | 'SCENARIO_Q5' | 'WAITING_LINK' | 'EXPORT_FORMAT' | 'EXPORT_WORDS' | 'OCR_PREVIEW' | 'OCR_EDIT';
+    step: 'IDLE' | 'WAITING_FIRM_CODE' | 'WAITING_JURISDICTION' | 'WAITING_COURT' | 'WAITING_PARTIES' | 'WAITING_FACTS' | 'WAITING_QUESTION' | 'WAITING_SHARE_USER' | 'SIGNUP_ACCOUNT_TYPE' | 'SIGNUP_FIRM_NAME' | 'SIGNUP_FIRM_STATE' | 'SIGNUP_BRANCH_NAME' | 'SIGNUP_NAME' | 'SIGNUP_EMAIL' | 'SIGNUP_PHONE' | 'SIGNUP_COUNTRY' | 'SIGNUP_TELEGRAM_ID' | 'SIGNUP_ADDRESS' | 'SIGNUP_JOB' | 'SIGNUP_REG_NUMBER' | 'WAITING_VERIFY' | 'EDIT_FULLNAME' | 'EDIT_EMAIL' | 'EDIT_PHONE' | 'EDIT_ADDRESS' | 'EDIT_JOBPOSITION' | 'EDIT_FIRMCODE' | 'WAITING_ADDSTAFF' | 'SCENARIO_Q1' | 'SCENARIO_Q2' | 'SCENARIO_Q3' | 'SCENARIO_Q4' | 'SCENARIO_Q5' | 'WAITING_LINK' | 'EXPORT_FORMAT' | 'EXPORT_WORDS' | 'OCR_PREVIEW' | 'OCR_EDIT';
     data: {
         jurisdiction?: string;
         court?: string;
@@ -468,8 +468,25 @@ Select a plan:`;
         sessions[userId].data.verificationCode = code;
         sessions[userId].step = 'WAITING_VERIFY';
 
-        // Send code via Telegram (the bot sends it directly to the user)
-        await ctx.reply(`🔐 **Verification Code**\n\nYour unique 8-digit code is:\n\n**${code}**\n\n⚠️ Do NOT share this code with anyone!\n\nPlease type this code below to verify your account:`);
+        if (text === sessions[userId].data.verificationCode) {
+            await prisma.user.update({
+                where: { telegramId: BigInt(userId) },
+                data: { isVerified: true }
+            });
+            await ctx.reply('✅ **Account Verified!**\n\nRegistration Complete. Select your account type:', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: '👤 Individual', callback_data: 'acct_INDIVIDUAL' }],
+                        [{ text: '🏢 Law Firm', callback_data: 'acct_FIRM' }],
+                        [{ text: '⚖️ Bar Association', callback_data: 'acct_BAR' }],
+                        [{ text: '🤝 Join a Team', callback_data: 'acct_JOIN' }]
+                    ]
+                }
+            });
+            sessions[userId].step = 'SIGNUP_ACCOUNT_TYPE';
+        } else {
+            await ctx.reply('❌ Incorrect code. Try again.');
+        }
     });
 
     // ============= ADMIN COMMANDS =============
