@@ -516,9 +516,14 @@ Select a plan:`;
         const adminCheck = await isAdmin(ctx.from.id);
         if (!adminCheck.isAdmin) return ctx.reply('⛔ Access denied.');
 
+        const appUrl = process.env.WEBAPP_URL || 'https://caseview-bot.onrender.com'; // Defaulting to generic, user should update
+        const token = process.env.ADMIN_SECRET || 'changeme_to_something_secure';
+        const dashboardUrl = `${appUrl}/admin.html?token=${token}`;
+
         await ctx.reply(`🔐 **Admin Dashboard**\n\nRole: ${adminCheck.role}\n\nCommands:\n/users - List all users\n/stats - Bot statistics\n/ban @username - Ban/unban user\n/setplan @username PLAN - Set user plan\n/broadcast MESSAGE - Send to all users`, {
             reply_markup: {
                 inline_keyboard: [
+                    [{ text: '🛠 Open Dashboard', web_app: { url: dashboardUrl } }],
                     [{ text: '📊 Stats', callback_data: 'admin_stats' }, { text: '👥 Users', callback_data: 'admin_users' }],
                     [{ text: '📢 Broadcast', callback_data: 'admin_broadcast' }]
                 ]
@@ -1742,13 +1747,67 @@ Provide:
             // For paid plans, show payment info
             const planName = plan === 'BAR' ? 'BAR ASSOCIATION' : plan;
             await ctx.answerCbQuery();
-            await ctx.reply(`💳 **Upgrade to ${planName}** (${prices[plan]}/mo)\n\n**Features:**\n• ${limits[plan]} cases/month\n${plan === 'FIRM' || plan === 'BAR' ? '• Team management\n' : ''}${plan === 'BAR' ? '• Unlimited members\n• API access\n' : ''}\n**To subscribe:**\n1. Click the payment link below\n2. Complete payment\n3. Send receipt screenshot here\n\nWe'll activate within 24 hours.`, {
+
+            // Star Prices
+            const starsMap: Record<string, number> = { PRO: 500, FIRM: 2500, BAR: 10000 };
+            const stars = starsMap[plan] || 500;
+
+            await ctx.reply(`💳 **Upgrade to ${planName}**\n\n**Features:**\n• ${limits[plan]} cases/month\n${plan === 'FIRM' || plan === 'BAR' ? '• Team management\n' : ''}${plan === 'BAR' ? '• Unlimited members\n• API access\n' : ''}\n\nSelect payment method:`, {
                 reply_markup: {
-                    inline_keyboard: [[
-                        { text: `💳 Pay ${prices[plan]}/mo`, url: 'https://paystack.com/pay/caseview-' + plan.toLowerCase() }
-                    ]]
+                    inline_keyboard: [
+                        [{ text: `⭐ Pay ${stars} Stars`, callback_data: `pay_stars_${plan}` }],
+                        [{ text: `💳 Card / Bank Transfer (${prices[plan]})`, url: 'https://paystack.com/pay/caseview-' + plan.toLowerCase() }]
+                    ]
                 }
             });
+        }
+    });
+
+    // STARS PAYMENT HANDLERS
+    bot.action(/^pay_stars_(PRO|FIRM|BAR)/, async (ctx) => {
+        const plan = ctx.match[1];
+        const starsMap: Record<string, number> = { PRO: 500, FIRM: 2500, BAR: 10000 };
+        const price = starsMap[plan];
+
+        await ctx.answerCbQuery();
+        await ctx.sendInvoice({
+            title: `${plan} Plan Subscription`,
+            description: `Monthly subscription for ${plan} plan features.`,
+            payload: `sub_${plan}_${ctx.from.id}`,
+            provider_token: "", // Empty for Telegram Stars
+            currency: "XTR",
+            prices: [{ label: `${plan} Plan`, amount: price }],
+            start_parameter: "upgrade-plan"
+        });
+    });
+
+    // Handle Pre-Checkout (Required for Stars)
+    bot.on('pre_checkout_query', async (ctx) => {
+        await ctx.answerPreCheckoutQuery(true);
+    });
+
+    // Handle Successful Payment
+    bot.on('successful_payment', async (ctx) => {
+        if (!ctx.message || !('successful_payment' in ctx.message)) return;
+
+        const payment = ctx.message.successful_payment;
+        const payload = payment.invoice_payload; // e.g., sub_PRO_12345
+
+        if (payload.startsWith('sub_')) {
+            const parts = payload.split('_');
+            const plan = parts[1];
+            const userId = ctx.from.id;
+
+            // Activate Plan
+            await prisma.user.update({
+                where: { telegramId: BigInt(userId) },
+                data: {
+                    subscription: plan,
+                    subscriptionExp: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // +30 days
+                } as any
+            });
+
+            await ctx.reply(`🎉 **Payment Successful!**\n\nYou have been upgraded to the **${plan}** plan.\n\nThank you for subscribing!`);
         }
     });
 
