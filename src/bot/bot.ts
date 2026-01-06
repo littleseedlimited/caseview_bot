@@ -468,25 +468,11 @@ Select a plan:`;
         sessions[userId].data.verificationCode = code;
         sessions[userId].step = 'WAITING_VERIFY';
 
-        if (text === sessions[userId].data.verificationCode) {
-            await prisma.user.update({
-                where: { telegramId: BigInt(userId) },
-                data: { isVerified: true }
-            });
-            await ctx.reply('✅ **Account Verified!**\n\nRegistration Complete. Select your account type:', {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: '👤 Individual', callback_data: 'acct_INDIVIDUAL' }],
-                        [{ text: '🏢 Law Firm', callback_data: 'acct_FIRM' }],
-                        [{ text: '⚖️ Bar Association', callback_data: 'acct_BAR' }],
-                        [{ text: '🤝 Join a Team', callback_data: 'acct_JOIN' }]
-                    ]
-                }
-            });
-            sessions[userId].step = 'SIGNUP_ACCOUNT_TYPE';
-        } else {
-            await ctx.reply('❌ Incorrect code. Try again.');
-        }
+        // Send code via Telegram
+        await ctx.reply(`🔐 **Verification Code**\n\nYour unique 8-digit code is:\n\n**${code}**\n\n⚠️ Do NOT share this code with anyone!`);
+
+        // Note: Actual verification happens in the Wizard 'text' handler (WAITING_VERIFY)
+        return;
     });
 
     // ============= ADMIN COMMANDS =============
