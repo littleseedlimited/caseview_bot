@@ -39,10 +39,10 @@ const sessions: Record<number, {
         currentCaseId?: number;
         currentRefCode?: string;
         verificationCode?: string;
-        // User Profile Data
         fullName?: string;
         phone?: string;
-        email?: string; // Added for completeness
+        email?: string;
+        address?: string; // Added for country storage
         // For export - store full conversation
         analysis?: string;
         conversationHistory?: Array<{ role: 'user' | 'bot', content: string, timestamp: Date }>;
@@ -2330,7 +2330,10 @@ Provide:
                 return;
 
             case 'SIGNUP_EMAIL':
-                if (!text.includes('@')) return ctx.reply('❌ Invalid email. Please try again.');
+                // Strict Email Regex
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+                    return ctx.reply('❌ Invalid email format. Please enter a valid email address (e.g. name@example.com):');
+                }
 
                 await prisma.user.update({
                     where: { telegramId: BigInt(userId) },
@@ -2342,33 +2345,68 @@ Provide:
                 return;
 
             case 'SIGNUP_PHONE':
+                // Strict Phone: digits, +, -, space. must have at least 8 digits.
+                if (!/^[\d\+\-\s]{8,20}$/.test(text)) {
+                    return ctx.reply('❌ Invalid phone number. Please enter a valid number with country code (e.g., +2348012345678).');
+                }
+
                 await prisma.user.update({
                     where: { telegramId: BigInt(userId) },
                     data: { phone: text }
                 });
+                session.data.phone = text;
 
                 session.step = 'SIGNUP_COUNTRY';
-                await ctx.reply('🌍 Please enter your **Country**:');
+                await ctx.reply('🌍 Please enter your **Country** (e.g., Nigeria, United States):');
                 return;
 
             case 'SIGNUP_COUNTRY':
+                // Strict Real Country Check
+                const cleanCountry = text.trim();
+                const validCountry = COUNTRIES.find(c => c.name.toLowerCase() === cleanCountry.toLowerCase());
+
+                if (!validCountry) {
+                    return ctx.reply('❌ Invalid country name. Please enter a real country from our supported list (e.g., Nigeria, Ghana, United Kingdom, USA).');
+                }
+
                 await prisma.user.update({
                     where: { telegramId: BigInt(userId) },
-                    data: { address: text } // Using address field for Country for now
+                    data: {
+                        address: validCountry.name,
+                        country: validCountry.name
+                    } as any
                 });
+                session.data.address = validCountry.name;
 
-                // Show completion message with Telegram ID confirmation
-                await ctx.reply(`✅ **Profile Setup Complete!**\n\n**Name:** ${session.data.fullName || 'Saved'}\n**Telegram ID:** ${userId} (Captured)\n**Phone:** ${session.data.phone || 'Saved'}\n**Country:** ${text}\n\nSelect your account type to proceed:`, {
-                    reply_markup: {
-                        inline_keyboard: [
-                            [{ text: '👤 Individual', callback_data: 'acct_INDIVIDUAL' }],
-                            [{ text: '🏢 Law Firm', callback_data: 'acct_FIRM' }],
-                            [{ text: '⚖️ Bar Association', callback_data: 'acct_BAR' }],
-                            [{ text: '🤝 Join a Team', callback_data: 'acct_JOIN' }]
-                        ]
+                session.step = 'SIGNUP_TELEGRAM_ID';
+                await ctx.reply('🆔 Please confirm your **Telegram ID** (for Verification).\n\nIf this account is yours (ID: ' + userId + '), simply type: **myid**\n\nOr enter a different numeric ID to verify ownership.');
+                return;
+
+            case 'SIGNUP_TELEGRAM_ID':
+                let targetId = userId;
+                if (text.toLowerCase() !== 'myid') {
+                    if (!/^\d+$/.test(text)) return ctx.reply('❌ Invalid ID. Please enter numbers only or type "myid".');
+                    targetId = parseInt(text);
+                }
+
+                // Generate Verification Code
+                const verifyCode = Math.floor(100000 + Math.random() * 900000).toString();
+                session.data.verificationCode = verifyCode;
+                session.step = 'WAITING_VERIFY';
+
+                // Attempt to send code to targeting ID
+                try {
+                    if (targetId !== userId) {
+                        await ctx.telegram.sendMessage(targetId, `🔐 **Verification Code**\n\nHello! Someone is registering an account with this Telegram ID on CaseView Bot.\n\nYour code is: **${verifyCode}**\n\nIf this wasn't you, ignore this message.`);
+                        await ctx.reply(`✅ Code sent to ID \`${targetId}\`. Please check that account messages and enter the code here:`);
+                    } else {
+                        // Same user - assume they see it here or DM
+                        await ctx.reply(`🔐 **Verification Code**\n\nYour code is: **${verifyCode}**\n\n(We sent this to confirm you control this ID). Enter it below:`);
                     }
-                });
-                session.step = 'SIGNUP_ACCOUNT_TYPE';
+                } catch (e) {
+                    // Fallback if blocked or error
+                    await ctx.reply(`⚠️ Could not message ID \`${targetId}\` (Bot might be blocked).\n\nHere is your code: **${verifyCode}**\nPlease enter it below:`);
+                }
                 return;
 
             case 'SIGNUP_REG_NUMBER':
@@ -2399,14 +2437,24 @@ Provide:
 
             case 'WAITING_VERIFY':
                 const expectedCode = session.data.verificationCode;
-                if (text === expectedCode) {
+                if (text.trim() === expectedCode) {
                     await prisma.user.update({
                         where: { telegramId: BigInt(userId) },
                         data: { isVerified: true }
                     });
-                    session.step = 'IDLE';
+
+                    await ctx.reply(`✅ **Account Verified!**\n\n**Name:** ${session.data.fullName || 'Saved'}\n**Phone:** ${session.data.phone}\n**Country:** ${session.data.address || 'Saved'}\n\nRegistration Complete. Select your account type:`, {
+                        reply_markup: {
+                            inline_keyboard: [
+                                [{ text: '👤 Individual', callback_data: 'acct_INDIVIDUAL' }],
+                                [{ text: '🏢 Law Firm', callback_data: 'acct_FIRM' }],
+                                [{ text: '⚖️ Bar Association', callback_data: 'acct_BAR' }],
+                                [{ text: '🤝 Join a Team', callback_data: 'acct_JOIN' }]
+                            ]
+                        }
+                    });
+                    session.step = 'SIGNUP_ACCOUNT_TYPE';
                     session.data.verificationCode = undefined;
-                    await ctx.reply('✅ **Account Verified!**\n\nYour account is now fully verified.\n\nYou can now access all features.\nUse /newbrief to start a case.');
                 } else {
                     await ctx.reply('❌ **Invalid Code**\n\nThe code you entered is incorrect.\n\nPlease try again or use /verify to get a new code.');
                 }
