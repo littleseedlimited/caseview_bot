@@ -59,6 +59,7 @@ const sessions: Record<number, {
         };
         precedents?: any[];
         ocrText?: string; // For OCR preview/edit workflow
+        pendingText?: string; // For multi-doc accumulation
     },
     staging?: {
         type: 'text' | 'file';
@@ -2552,14 +2553,32 @@ Provide:
             // STAGE THE FILE
             currentSession.staging = { type: 'file', content: fileLink.href, mime };
 
-            // If already waiting for facts, auto-proceed
-            if (currentSession.step === 'WAITING_FACTS') {
-                await ctx.reply('📂 Document received for current brief. Analyzing...');
-                currentSession.step = 'IDLE';
-                await processCaseInput(ctx, currentSession.staging, currentSession.data);
-                currentSession.staging = undefined;
+            // EXTRACT TEXT & BUFFER (Multi-Doc Support)
+            await ctx.reply('🔄 **Reading Document...**');
+            const newText = await extractTextFromDocument(fileLink.href, mime);
+
+            if (newText.startsWith('Error')) {
+                await ctx.reply(`⚠️ Could not read file: ${newText}`);
+            } else {
+                const currentBuffer = currentSession.data.pendingText || '';
+                currentSession.data.pendingText = currentBuffer + '\n\n' + newText;
+
+                const totalLen = currentSession.data.pendingText.length;
+
+                await ctx.reply(`📄 **Document Added!**\n\n**Total Context:** ${totalLen} characters.\n\nType/Upload another document to add more, or click DONE to finish.`, {
+                    reply_markup: {
+                        inline_keyboard: [[
+                            { text: '➕ Add Another', callback_data: 'doc_next' },
+                            { text: '✅ DONE - Analyze All', callback_data: 'doc_done' }
+                        ]]
+                    }
+                });
                 return;
             }
+
+            // If we fall through here (error reading), fallback to old flow?
+            // For now, let's keep simple. If reading fails, allow manual typing or retry.
+            return;
 
             // Otherwise, ask User
             await ctx.reply(`📂 **File Received** (${mime})\n\nIs this a New Case or for an Existing Matter?`, {
@@ -2579,6 +2598,45 @@ Provide:
         }
     });
 
+    bot.action('doc_next', async (ctx) => {
+        await ctx.answerCbQuery();
+        await ctx.reply('📂 **Upload Next Document**\n\nOr type additional text to append effectively.');
+    });
+
+    bot.action('doc_done', async (ctx) => {
+        const userId = ctx.from.id;
+        const session = sessions[userId];
+
+        await ctx.answerCbQuery();
+
+        if (!session.data.pendingText || session.data.pendingText.trim().length === 0) {
+            return ctx.reply('⚠️ No content to analyze.');
+        }
+
+        // If WAITING_FACTS, this is the main brief input
+        if (session.step === 'WAITING_FACTS') {
+            session.data.facts = session.data.pendingText;
+            session.data.pendingText = undefined; // Clear buffer
+            session.step = 'IDLE';
+
+            await ctx.reply('🚀 **Processing All Documents...**\n\nCreating your Brief.');
+            await processCaseInput(ctx, { type: 'text', content: session.data.facts! }, session.data);
+            return;
+        }
+
+        // Otherwise, ask New vs Existing
+        await ctx.editMessageText(`📂 **Content Ready** (${session.data.pendingText.length} chars)\n\nIs this a New Case or for an Existing Matter?`, {
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '✨ New Case', callback_data: 'stage_new_buffered' }, // New handler needed
+                    { text: '📂 Add to Existing', callback_data: 'stage_existing' }
+                ], [
+                    { text: '❌ Cancel', callback_data: 'stage_cancel' }
+                ]]
+            }
+        });
+    });
+
     bot.action('stage_new', async (ctx) => {
         // Proceed to Analyze/Save choice (re-using previous staging logic flow)
         await ctx.answerCbQuery();
@@ -2587,6 +2645,25 @@ Provide:
                 inline_keyboard: [[
                     { text: '🔍 Analyze & Brief', callback_data: 'stage_analyze' }, // existing handler
                     { text: '💾 Save Only', callback_data: 'stage_save' },       // existing handler
+                    { text: '❌ Cancel', callback_data: 'stage_cancel' }
+                ]]
+            }
+        });
+    });
+
+    bot.action('stage_new_buffered', async (ctx) => {
+        const userId = ctx.from.id;
+        const session = sessions[userId];
+        // Move buffer to 'staging' conceptually for the analyze step
+        // But stage_analyze looks for session.staging.content
+        session.staging = { type: 'text', content: session.data.pendingText!, mime: 'text/plain' };
+
+        await ctx.answerCbQuery();
+        await ctx.editMessageText(`📂 **New Case Setup**\n\nReady to analyze ${session.data.pendingText!.length} chars.`, {
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '🔍 Analyze & Brief', callback_data: 'stage_analyze' },
+                    { text: '💾 Save Only', callback_data: 'stage_save' },
                     { text: '❌ Cancel', callback_data: 'stage_cancel' }
                 ]]
             }
